@@ -106,7 +106,8 @@ module Git
         log = @base.lib.full_log_commits(:count => @count, :object => @object, 
                                     :path_limiter => @path, :since => @since, 
                                     :author => @author, :grep => @grep,
-                                    :until => @until, :between => @between)
+                                    :until => @until, :between => @between,
+                                    :reverse => true)
         @commits = log.map { |c| Git::Object::Commit.new(@base, c['sha'], c) }
       end
       

@@ -80,6 +80,7 @@ module Git
     def full_log_commits(opts = {})
       arr_opts = ['--pretty=raw']
       arr_opts << "-#{opts[:count]}" if opts[:count]
+      arr_opts << '--reverse' if opts[:reverse]
       arr_opts << "--since=\"#{opts[:since]}\"" if opts[:since].is_a? String
       arr_opts << "--until=\"#{opts[:until]}\"" if opts[:until].is_a? String
       arr_opts << "--grep=\"#{opts[:grep]}\"" if opts[:grep].is_a? String
@@ -299,6 +300,45 @@ module Git
                       :sha_repo => sha_src, :sha_index => sha_dest, :type => type}
       end
       hsh
+    end
+
+    def status
+      changes_to_be_committed = {}
+      changed_but_not_updated = {}
+      untracked_files = []
+
+      state = :before_anything_useful
+      command_lines('status', :ignore_exit_status => true).each do |line|
+        case
+        when line =~ /Changes to be committed/
+          state = :changes_to_be_committed
+        when line =~ /Changed but not updated/
+          state = :changed_but_not_updated
+        when line =~ /Untracked files/
+          state = :untracked_files
+        end
+
+        case state
+        when :changes_to_be_committed
+          if line =~ /^#\s+(new file|modified|\w+):\s+(\S+)$/
+            status, file = $1, $2
+            status = {'new file' => :new, 'modified' => :modified, 'deleted' => :deleted}[status] || (raise "Unrecognized status '#{status}' for file '#{file}'")
+            changes_to_be_committed[file] = status
+          end
+        when :changed_but_not_updated
+          if line =~ /^#\s+(modified|\w+):\s+(\S+)$/
+            status, file = $1, $2
+            status = {'modified' => :modified, 'deleted' => :deleted}[status] || (raise "Unrecognized status '#{status}' for file '#{file}'")
+            changed_but_not_updated[file] = status
+          end
+        when :untracked_files
+          if line =~ /^#\s+(\S+)$/
+            file = $1
+            untracked_files << file
+          end
+        end
+      end
+      return changes_to_be_committed, changed_but_not_updated, untracked_files
     end
             
     def ls_files
@@ -616,6 +656,7 @@ module Git
     end
     
     def command(cmd, opts = [], chdir = true, &block)
+      ignore_exit_status = opts.delete(:ignore_exit_status)
       ENV['GIT_DIR'] = @git_dir if (@git_dir != ENV['GIT_DIR'])
       ENV['GIT_INDEX_FILE'] = @git_index_file if (@git_index_file != ENV['GIT_INDEX_FILE'])
       ENV['GIT_WORK_TREE'] = @git_work_dir if (@git_work_dir != ENV['GIT_WORK_TREE'])
@@ -636,7 +677,7 @@ module Git
         @logger.debug(out)
       end
             
-      if $?.exitstatus > 0
+      if $?.exitstatus > 0 and !ignore_exit_status
         if $?.exitstatus == 1 && out == ''
           return ''
         end
